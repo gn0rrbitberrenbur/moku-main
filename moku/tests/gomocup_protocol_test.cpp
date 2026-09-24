@@ -7,6 +7,11 @@
 #include <sstream>
 #include <string>
 
+/**
+ * This test suit implements tests that check whether the engine is compliant
+ * to the Gomoku AI protocol (see: https://plastovicka.github.io/protocl2en.htm)
+ */
+
 class ProtocolEngine : public Engine
 {
 public:
@@ -80,7 +85,13 @@ protected:
     }
 };
 
-TEST_F(GomocupProtocolTest, StartAcceptsSupportedBoardSizes)
+/**
+ * "START [size]"
+ * Following this command, the brain should initialize an empty board but does not make a move yet.
+ * If the size is good, the engine answers "OK"
+ * If the size is unsupported, the engine answers "ERROR message"
+ */
+TEST_F(GomocupProtocolTest, START_StartAcceptsSupportedBoardSizes)
 {
     ProtocolEngine engine;
 
@@ -91,7 +102,7 @@ TEST_F(GomocupProtocolTest, StartAcceptsSupportedBoardSizes)
     EXPECT_EQ(g_config.board_size, 20);
 }
 
-TEST_F(GomocupProtocolTest, StartRejectsUnsupportedBoardSizes)
+TEST_F(GomocupProtocolTest, START_StartRejectsUnsupportedBoardSizes)
 {
     ProtocolEngine engine;
 
@@ -99,7 +110,7 @@ TEST_F(GomocupProtocolTest, StartRejectsUnsupportedBoardSizes)
     EXPECT_EQ(engine.execute("START 21").find("ERROR"), 0);
 }
 
-TEST_F(GomocupProtocolTest, StartCreatesEmptyBoard)
+TEST_F(GomocupProtocolTest, START_StartCreatesEmptyBoard)
 {
     ProtocolEngine engine;
 
@@ -109,7 +120,13 @@ TEST_F(GomocupProtocolTest, StartCreatesEmptyBoard)
     EXPECT_EQ(engine.get_board().white.count(), 0);
 }
 
-TEST_F(GomocupProtocolTest, BeginReturnsMoveAndUpdatesBoard)
+/**
+ * "BEGIN"
+ * This command is sent by the manager to the engine at the beginning of the match, right
+ * after "START". This means that the engine is expected to play the first move.
+ * Expected answer: "[X],[Y]", coordinates of the brains move.
+ */
+TEST_F(GomocupProtocolTest, BEGIN_BeginReturnsMoveAndUpdatesBoard)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -120,15 +137,12 @@ TEST_F(GomocupProtocolTest, BeginReturnsMoveAndUpdatesBoard)
     EXPECT_EQ(engine.get_board().black.count() + engine.get_board().white.count(), 1);
 }
 
-TEST_F(GomocupProtocolTest, BeginOnEmptyBoardUsesCenter)
-{
-    ProtocolEngine engine;
-    engine.execute("START 15");
-
-    EXPECT_EQ(engine.execute("BEGIN"), "7,7\n");
-}
-
-TEST_F(GomocupProtocolTest, TurnReturnsMoveAndRegistersOpponentMove)
+/**
+ * "TURN [X],[Y]"
+ * This command is sent to the engine to make a move.
+ * The parameters are the coordinates of the move, numbered from zero.
+ */
+TEST_F(GomocupProtocolTest, TURN_TurnReturnsMoveAndRegistersOpponentMove)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -141,7 +155,7 @@ TEST_F(GomocupProtocolTest, TurnReturnsMoveAndRegistersOpponentMove)
     EXPECT_EQ(engine.get_board().black.count() + engine.get_board().white.count(), 2);
 }
 
-TEST_F(GomocupProtocolTest, TurnRejectsNegativeCoordinates)
+TEST_F(GomocupProtocolTest, TURN_TurnRejectsNegativeCoordinates)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -151,7 +165,7 @@ TEST_F(GomocupProtocolTest, TurnRejectsNegativeCoordinates)
     EXPECT_NE(output.find("ERROR"), std::string::npos);
 }
 
-TEST_F(GomocupProtocolTest, TurnRejectsCoordinatesOutsideBoard)
+TEST_F(GomocupProtocolTest, TURN_TurnRejectsCoordinatesOutsideBoard)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -161,7 +175,7 @@ TEST_F(GomocupProtocolTest, TurnRejectsCoordinatesOutsideBoard)
     EXPECT_NE(output.find("ERROR"), std::string::npos);
 }
 
-TEST_F(GomocupProtocolTest, TurnRejectsOccupiedPosition)
+TEST_F(GomocupProtocolTest, TURN_TurnRejectsOccupiedPosition)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -172,7 +186,16 @@ TEST_F(GomocupProtocolTest, TurnRejectsOccupiedPosition)
     EXPECT_NE(output.find("ERROR"), std::string::npos);
 }
 
-TEST_F(GomocupProtocolTest, BoardLoadsOwnAndOpponentStones)
+/**
+ * "BOARD"
+ * This command is used to build a board.
+ * Parameters: [X],[Y],[field]
+ * field=1 means "own stone"
+ * field=2 means "opponents stone"
+ * field=3 means stone is part of winning line or forbidden (only if continuous game is enabled)
+ * Data is ended with "DONE"
+ */
+TEST_F(GomocupProtocolTest, BOARD_BoardLoadsOwnAndOpponentStones)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -186,7 +209,7 @@ TEST_F(GomocupProtocolTest, BoardLoadsOwnAndOpponentStones)
     EXPECT_EQ(engine.get_board().black.count() + engine.get_board().white.count(), 4);
 }
 
-TEST_F(GomocupProtocolTest, BoardResetsPreviousPosition)
+TEST_F(GomocupProtocolTest, BOARD_BoardResetsPreviousPosition)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -200,7 +223,20 @@ TEST_F(GomocupProtocolTest, BoardResetsPreviousPosition)
     EXPECT_FALSE(engine.get_board().test_pos(112));
 }
 
-TEST_F(GomocupProtocolTest, InfoDoesNotWriteToStandardOutput)
+/**
+ * "INFO [key],[value]"
+ * This command is used by the manager to send information to the brain.
+ * This could be:
+ * timeout_turn  - time limit for each move (milliseconds, 0=play as fast as possible)
+ * timeout_match - time limit of a whole match (milliseconds, 0=no limit)
+ * max_memory    - memory limit (bytes, 0=no limit)
+ * time_left     - remaining time limit of a whole match (milliseconds)
+ * game_type     - 0=opponent is human, 1=opponent is brain, 2=tournament, 3=network tournament
+ * rule          - bitmask or sum of 1=exactly five in a row win, 2=continuous game, 4=renju, 8=caro
+ * evaluate      - coordinates X,Y representing current position of the mouse cursor
+ * folder        - folder for persistent files
+ */
+TEST_F(GomocupProtocolTest, INFO_InfoDoesNotWriteToStandardOutput)
 {
     ProtocolEngine engine;
 
@@ -208,7 +244,7 @@ TEST_F(GomocupProtocolTest, InfoDoesNotWriteToStandardOutput)
     EXPECT_EQ(g_config.time_limit_ms, 4000);
 }
 
-TEST_F(GomocupProtocolTest, InfoUpdatesSupportedValues)
+TEST_F(GomocupProtocolTest, INFO_InfoUpdatesSupportedValues)
 {
     ProtocolEngine engine;
 
@@ -227,14 +263,47 @@ TEST_F(GomocupProtocolTest, InfoUpdatesSupportedValues)
     EXPECT_EQ(g_config.folder, "/tmp/moku");
 }
 
-TEST_F(GomocupProtocolTest, UnknownInfoIsIgnored)
+TEST_F(GomocupProtocolTest, INFO_UnknownInfoIsIgnored)
 {
     ProtocolEngine engine;
 
     EXPECT_TRUE(engine.execute("INFO unknown_key 123").empty());
 }
 
-TEST_F(GomocupProtocolTest, RestartClearsBoard)
+/**
+ * "END"
+ * This command terminates the engine.
+ */
+TEST_F(GomocupProtocolTest, END_EndStopsEngineWithoutOutput)
+{
+    ProtocolEngine engine;
+
+    EXPECT_TRUE(engine.is_running());
+    EXPECT_TRUE(engine.execute("END").empty());
+    EXPECT_FALSE(engine.is_running());
+}
+
+/**
+ * "ABOUT"
+ * This command should send some information about the engine in the following format:
+ * key="value", key="value", ...
+ */
+TEST_F(GomocupProtocolTest, ABOUT_AboutReturnsMachineReadableInformation)
+{
+    ProtocolEngine engine;
+
+    const std::string output = engine.execute("ABOUT");
+
+    EXPECT_NE(output.find("name=\"moku\""), std::string::npos);
+    EXPECT_NE(output.find("version=\""), std::string::npos);
+}
+
+/**
+ * "RESTART"
+ * This command is supposed to reset the board.
+ * The board size is supposed to stay the same.
+ */
+TEST_F(GomocupProtocolTest, RESTART_RestartClearsBoard)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -246,7 +315,11 @@ TEST_F(GomocupProtocolTest, RestartClearsBoard)
     EXPECT_EQ(g_config.board_size, 15);
 }
 
-TEST_F(GomocupProtocolTest, TakebackRemovesStone)
+/**
+ * "TAKEBACK [X],[Y]"
+ * This command is used to undo the last move.
+ */
+TEST_F(GomocupProtocolTest, TAKEBACK_TakebackRemovesStone)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -256,7 +329,7 @@ TEST_F(GomocupProtocolTest, TakebackRemovesStone)
     EXPECT_FALSE(engine.get_board().test_pos(7 * 15 + 7));
 }
 
-TEST_F(GomocupProtocolTest, TakebackRejectsMissingStone)
+TEST_F(GomocupProtocolTest, TAKEBACK_TakebackRejectsMissingStone)
 {
     ProtocolEngine engine;
     engine.execute("START 15");
@@ -266,7 +339,11 @@ TEST_F(GomocupProtocolTest, TakebackRejectsMissingStone)
     EXPECT_NE(output.find("ERROR"), std::string::npos);
 }
 
-TEST_F(GomocupProtocolTest, RectStartReportsUnsupportedBoard)
+/**
+ * "RECTSTART [width],[height]"
+ * This command is similar to "START", but it initializes a rectangular board.
+ */
+TEST_F(GomocupProtocolTest, RECTSTART_RectStartReportsUnsupportedBoard)
 {
     ProtocolEngine engine;
 
@@ -275,16 +352,9 @@ TEST_F(GomocupProtocolTest, RectStartReportsUnsupportedBoard)
     EXPECT_NE(output.find("ERROR"), std::string::npos);
 }
 
-TEST_F(GomocupProtocolTest, AboutReturnsMachineReadableInformation)
-{
-    ProtocolEngine engine;
-
-    const std::string output = engine.execute("ABOUT");
-
-    EXPECT_NE(output.find("name=\"moku\""), std::string::npos);
-    EXPECT_NE(output.find("version=\""), std::string::npos);
-}
-
+/**
+ * If an unknown command is sent, "UNKNOWN [message] should be displayed."
+ */
 TEST_F(GomocupProtocolTest, UnknownCommandReturnsUnknown)
 {
     ProtocolEngine engine;
@@ -292,19 +362,13 @@ TEST_F(GomocupProtocolTest, UnknownCommandReturnsUnknown)
     EXPECT_EQ(engine.execute("SOMETHING"), "UNKNOWN SOMETHING\n");
 }
 
+/**
+ * Commands should be case insensitive (converted to uppercase internally)
+ */
 TEST_F(GomocupProtocolTest, CommandsAreCaseInsensitive)
 {
     ProtocolEngine engine;
 
     EXPECT_EQ(engine.execute("start 15"), "OK\n");
     EXPECT_EQ(engine.execute("begin"), "7,7\n");
-}
-
-TEST_F(GomocupProtocolTest, EndStopsEngineWithoutOutput)
-{
-    ProtocolEngine engine;
-
-    EXPECT_TRUE(engine.is_running());
-    EXPECT_TRUE(engine.execute("END").empty());
-    EXPECT_FALSE(engine.is_running());
 }

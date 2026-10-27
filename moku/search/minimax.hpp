@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <vector>
 
 // One root move with its search score and node count (used as visit proxy).
@@ -73,7 +74,7 @@ private:
     int current_depth = 0;
 
     // time control
-    std::chrono::time_point<std::chrono::high_resolution_clock> search_start;
+    std::chrono::steady_clock::time_point search_start;
     int time_limit = 0;
     std::atomic<bool> search_aborted{false};
 
@@ -87,4 +88,14 @@ private:
     std::vector<RootCandidate> last_root_candidates;
 
     bool is_time_up();
+
+    // mutex for thread-safe access to search metrics
+    std::atomic<int> progress_best_move{-1};
+    std::atomic<int> progress_depth{0};
+    std::atomic<float> progress_score{0.0f};
+    std::atomic<bool> progress_score_valid{false};
+    std::chrono::steady_clock::time_point last_progress_report;
+    std::mutex progress_mutex;
+
+    void report_progress();
 };

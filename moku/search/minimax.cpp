@@ -23,7 +23,7 @@ bool MinimaxAgent::is_time_up()
     if (time_limit <= 0)
         return false;
 
-    auto now = std::chrono::high_resolution_clock::now();
+    auto now = std::chrono::steady_clock::now();
     auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(now - search_start).count();
     return elapsed >= time_limit;
@@ -42,7 +42,12 @@ bool MinimaxAgent::is_time_up()
  */
 int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limit_ms)
 {
-    search_start = std::chrono::high_resolution_clock::now();
+    search_start = std::chrono::steady_clock::now();
+    last_progress_report = search_start;
+    progress_best_move.store(-1, std::memory_order_relaxed);
+    progress_depth.store(0, std::memory_order_relaxed);
+    progress_score.store(0.0f, std::memory_order_relaxed);
+    progress_score_valid.store(false, std::memory_order_relaxed);
     time_limit = time_limit_ms;
     search_aborted = false;
 
@@ -68,6 +73,7 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
 
     // set best_move to first move as fallback
     best_move = moves[0];
+    progress_best_move.store(best_move, std::memory_order_relaxed);
     last_root_candidates.clear();
 
     // initial hash
@@ -86,8 +92,9 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
     for (int depth = 1; depth <= max_depth; depth++)
     {
         search_aborted = false;
+        progress_depth.store(depth, std::memory_order_relaxed);
 
-        auto depth_start = std::chrono::high_resolution_clock::now();
+        auto depth_start = std::chrono::steady_clock::now();
 
         {
             std::vector<std::pair<int, int>> scored;
@@ -164,9 +171,13 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
                 }
                 beta = std::min(beta, score);
             }
+
+            progress_best_move.store(current_best_move, std::memory_order_relaxed);
+            progress_score.store(current_best_score, std::memory_order_relaxed);
+            progress_score_valid.store(true, std::memory_order_relaxed);
         }
 
-        auto depth_end = std::chrono::high_resolution_clock::now();
+        auto depth_end = std::chrono::steady_clock::now();
         double depth_time = std::chrono::duration<double>(depth_end - depth_start).count();
 
         // only if search was not aborted, update best move and print info
@@ -205,7 +216,7 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
 
         // check if the time is almost up before starting the next depth
         auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::high_resolution_clock::now() - search_start)
+                                 std::chrono::steady_clock::now() - search_start)
                                  .count();
 
         if (total_elapsed * 10 > time_limit_ms)
@@ -219,7 +230,7 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
     }
 
     // print info
-    auto total_end = std::chrono::high_resolution_clock::now();
+    auto total_end = std::chrono::steady_clock::now();
     double total_time = std::chrono::duration<double>(total_end - search_start).count();
 
     if (g_config.debug_output == true)
@@ -253,6 +264,8 @@ float MinimaxAgent::minimax(Board& board, int depth, float alpha, float beta, bo
     // check if theres enough time left every 1000 nodes
     if (time_limit > 0 && nodes_searched % 1000 == 0)
     {
+        // report progress to std::cerr
+        report_progress();
         if (is_time_up())
         {
             search_aborted = true;
@@ -435,7 +448,7 @@ int MinimaxAgent::get_best_move(Board& board, bool is_black)
     current_depth = 0;
     tt_hits = 0;
 
-    auto begin = std::chrono::high_resolution_clock::now();
+    auto begin = std::chrono::steady_clock::now();
     std::vector<int> moves = evaluator.get_valid_moves(board);
 
     if (moves.empty())
@@ -478,7 +491,7 @@ int MinimaxAgent::get_best_move(Board& board, bool is_black)
         }
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
     std::chrono::duration<double> duration = end - begin;
     if (g_config.debug_output == true)
     {
@@ -510,7 +523,12 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
     }
 
     // shared state
-    search_start = std::chrono::high_resolution_clock::now();
+    search_start = std::chrono::steady_clock::now();
+    last_progress_report = search_start;
+    progress_best_move.store(-1, std::memory_order_relaxed);
+    progress_depth.store(0, std::memory_order_relaxed);
+    progress_score.store(0.0f, std::memory_order_relaxed);
+    progress_score_valid.store(false, std::memory_order_relaxed);
     time_limit = time_limit_ms;
     search_aborted = false;
     nodes_searched = 0;
@@ -520,9 +538,13 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
     if (root_moves.empty())
         return -1;
     if (root_moves.size() == 1)
+    {
+        progress_best_move.store(root_moves[0], std::memory_order_relaxed);
         return root_moves[0];
+    }
 
     std::atomic<int> shared_best_move{root_moves[0]};
+    progress_best_move.store(root_moves[0], std::memory_order_relaxed);
     std::atomic<int> completed_depth{0};
     std::mutex result_mutex;
 
@@ -540,6 +562,11 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
 
         for (int depth = start_depth; depth <= max_depth; depth++)
         {
+            if (thread_id == 0)
+            {
+                progress_depth.store(depth, std::memory_order_relaxed);
+            }
+
             if (is_time_up())
             {
                 search_aborted = true;
@@ -620,6 +647,13 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
                     }
                     beta = std::min(beta, score);
                 }
+
+                if (thread_id == 0)
+                {
+                    progress_best_move.store(current_best_move, std::memory_order_relaxed);
+                    progress_score.store(current_best_score, std::memory_order_relaxed);
+                    progress_score_valid.store(true, std::memory_order_relaxed);
+                }
             }
 
             if (aborted_this_depth)
@@ -638,7 +672,7 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
 
             if (thread_id == 0 && g_config.debug_output)
             {
-                auto now = std::chrono::high_resolution_clock::now();
+                auto now = std::chrono::steady_clock::now();
                 double elapsed = std::chrono::duration<double>(now - search_start).count();
                 std::lock_guard<std::mutex> lock(result_mutex);
                 std::cerr << "[info] depth=" << depth << " | best=" << current_best_move
@@ -669,7 +703,7 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
 
     if (g_config.debug_output)
     {
-        auto total_end = std::chrono::high_resolution_clock::now();
+        auto total_end = std::chrono::steady_clock::now();
         double total_time = std::chrono::duration<double>(total_end - search_start).count();
         std::cerr << "[info] SMP search: threads=" << threads
                   << " | depth=" << completed_depth.load() << " | best=" << shared_best_move.load()
@@ -679,4 +713,64 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
 
     time_limit = 0;
     return shared_best_move.load();
+}
+
+/**
+ * Reports the current search progress, including elapsed time, nodes searched, TT hits, current
+ * depth, best move, and score.
+ * The progress is reported only if debug output is enabled and at least 1000 nodes have been
+ * searched since the last report.
+ * This function is called periodically during the search to provide real-time feedback on the
+ * search status.
+ * The metrics are reported in JSON format to std::cerr.
+ * @note This function is thread-safe and uses a mutex to protect access to shared progress metrics.
+ */
+void MinimaxAgent::report_progress()
+{
+    if (!g_config.debug_output || nodes_searched.load(std::memory_order_relaxed) % 1000 != 0)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_progress_report < std::chrono::milliseconds(1))
+    {
+        return;
+    }
+    last_progress_report = now;
+
+    const auto elapsed_ms = std::max<long long>(
+        1, std::chrono::duration_cast<std::chrono::milliseconds>(now - search_start).count());
+    const auto nodes = nodes_searched.load(std::memory_order_relaxed);
+    const int move = progress_best_move.load(std::memory_order_relaxed);
+
+    std::cerr << "MOKU {\"event\":\"search_progress\""
+              << ",\"elapsed_ms\":" << elapsed_ms << ",\"nodes_total\":" << nodes
+              << ",\"tt_hits_total\":" << tt_hits.load(std::memory_order_relaxed)
+              << ",\"nps\":" << nodes * 1000 / elapsed_ms
+              << ",\"depth_current\":" << progress_depth.load(std::memory_order_relaxed)
+              << ",\"best_move\":";
+
+    if (move >= 0)
+    {
+        std::cerr << "{\"x\":" << move % g_config.board_size
+                  << ",\"y\":" << move / g_config.board_size << "}";
+    }
+    else
+    {
+        std::cerr << "null";
+    }
+
+    std::cerr << ",\"score\":";
+    if (progress_score_valid.load(std::memory_order_relaxed))
+    {
+        std::cerr << progress_score.load(std::memory_order_relaxed);
+    }
+    else
+    {
+        std::cerr << "null";
+    }
+
+    std::cerr << "}\n" << std::flush;
 }

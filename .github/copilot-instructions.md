@@ -1,265 +1,149 @@
 # Project Context
-
-moku is a Gomoku engine written in C++17. It supports hotseat PvP in one terminal, an engine mode following the Gomoku AI Protocol, and playing against a Minimax agent with Alpha-Beta pruning.
+moku is a C++17 Gomoku engine. It builds two protocol-driven executables: `gomocup_moku` for
+the Gomocup protocol and `extended_moku`, which adds debugging and benchmark commands. The
+search uses Minimax with alpha-beta pruning, iterative deepening, move ordering, a Zobrist-hashed
+transposition table, and optional Lazy SMP.
 
 ## Repository Structure
+The CMake project and all C++ sources are under `moku/`:
 
-The repository contains the CMake project in the `moku/` directory:
+- `moku/CMakeLists.txt` - build configuration and target definitions
+- `moku/config.hpp` - global board, search, time, and thread configuration
+- `moku/main_gomocup.cpp` - Gomocup executable entry point
+- `moku/main_extended_protocol.cpp` - extended executable entry point
+- `moku/game/` - bitset board and game rules
+- `moku/game/tools/` - coordinate conversion utilities
+- `moku/engine/gomocup_protocol/` - Gomocup command handling
+- `moku/engine/extended_protocol/` - Gomocup commands plus extended commands
+- `moku/eval/` - position evaluation, candidate moves, and move ordering
+- `moku/search/` - Minimax, alpha-beta, iterative deepening, and Lazy SMP
+- `moku/tt/` - Zobrist hashing and transposition table
+- `moku/benchmark/` - benchmark positions and reporting
+- `moku/tests/tests.cpp` - core, evaluator, engine, and transposition-table tests
+- `moku/tests/gomocup_protocol_test.cpp` - Gomocup protocol tests
+- `.github/workflows/build.yml` - Linux/Windows build and tagged-release workflow
+- `.clang-format` - C++ formatting rules
 
-- `moku/CMakeLists.txt` - CMake build configuration
-- `moku/config.hpp` - global configuration and board settings
-- `moku/main.cpp` - application entry point
-- `moku/game/` - board logic
-- `moku/game/tools/` - game-related conversion and utility functions
-- `moku/engine/` - Gomoku protocol engine
-- `moku/eval/` - board evaluation
-- `moku/search/` - Minimax and Alpha-Beta search
-- `moku/tt/` - transposition table
-- `moku/benchmark/` - benchmark implementation
-- `moku/tests/` - GoogleTest unit tests
-- `moku/build/` - generated CMake build files and binaries
-- `.github/workflows/build.yml` - GitHub Actions build and release workflow
+There is no interactive PvP application or command-line option parser. Both executables read
+protocol commands from standard input and write protocol responses to standard output.
 
-All source and header files are located inside `moku/`. Include paths are relative to the `moku/` project directory.
+## Build and Test
+The project requires CMake 3.10 or newer and C++17. GoogleTest is fetched through CMake
+`FetchContent`, so configuring the standalone project may require network access.
 
-## Build System
-
-The project uses CMake 3.10 or newer and requires C++17.
-
-Work from inside the project directory:
+From the repository root:
 
 ```bash
-cd moku
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+cmake -S moku -B moku/build -DCMAKE_BUILD_TYPE=Release
+cmake --build moku/build --config Release
+ctest --test-dir moku/build -C Release --output-on-failure
 ```
 
-The CMake targets are:
+From the repository root, the convenience build scripts can be run as follows:
 
-- `moku` - main executable
-- `tests` - GoogleTest executable
+```powershell
+.\scripts\build.ps1
+```
+
+```bash
+bash scripts/build.sh
+```
+
+CMake targets:
+
+- `gomocup_moku` - Gomocup protocol executable
+- `extended_moku` - executable with extended debug and benchmark commands
 - `moku_core` - static core library
+- `tests` - core and engine GoogleTest executable
+- `gomocup_protocol_tests` - Gomocup protocol GoogleTest executable
 
-Build only the main executable:
+On Linux, the executables are `moku/build/gomocup_moku` and
+`moku/build/extended_moku`. On Windows with a multi-configuration generator, they are
+`moku/build/Release/gomocup_moku.exe` and `moku/build/Release/extended_moku.exe`.
 
-```bash
-cmake --build moku/build --config Release --target moku
-```
+To build one target, use `cmake --build moku/build --config Release --target <target>`.
 
-Build only the tests:
+## Configuration and Board
+Defaults in `GameConfig` are board size 15, maximum search depth 12, and a 20,000 ms turn time
+limit. The configured thread count defaults to hardware concurrency, with a fallback of one.
+`extended_moku` accepts `--debug-output` to enable diagnostic output. `gomocup_moku` has no
+command-line options; Gomocup `INFO` commands update settings such as `timeout_turn` and `depth`
+at runtime.
 
-```bash
-cmake --build moku/build --config Release --target tests
-```
+The board uses two `std::bitset<MAX_SQUARES>` values, with `MAX_SIZE` set to 19 and
+`MAX_SQUARES` set to 361. Positions are row-major: `pos = row * board_size + col`. Gomocup
+coordinates are zero-based `X,Y`, so `pos = Y * board_size + X`.
 
-Run the test executable directly on Linux:
+Important implementation discrepancy: both protocol handlers currently accept `START 20`, but
+the board bitsets only have capacity for 19x19. Treat 5 through 19 as the supported range; do
+not extend board-size claims without resolving this mismatch.
 
-```bash
-./moku/build/tests
-```
+The CMake project version is `0.0.5`, while `GameConfig::version` (used by `ABOUT`) is `0.0.7`.
+Do not assume these version values are synchronized.
 
-On Windows:
+## Gomocup Protocol
+Commands are read line by line from stdin. Responses go to stdout and are flushed. Command
+keywords are case-insensitive. The Gomocup executable supports:
 
-```powershell
-.\moku\build\Release\tests.exe
-```
+- `START [size]` - initialize an empty board; defaults to 15
+- `BEGIN` - play the first move, using the center on an empty board
+- `TURN X,Y` - register the opponent move and return the engine move
+- `BOARD ... DONE` - load a position and return a move; fields 1 and 2 represent own and
+	opponent stones
+- `INFO key value` - update supported game/search parameters
+- `ABOUT` - return engine name and configured version
+- `RESTART` - clear the board
+- `TAKEBACK X,Y` - remove a stone
+- `END` - stop the input loop
+- `RECTSTART` - return an unsupported-board error
 
-Run the main executable directly on Linux:
+Recognized `INFO` keys are `timeout_turn`, `timeout_match`, `time_left`, `max_memory`,
+`game_type`, `rule`, `folder`, and `depth` (depth values 1 through 20). Unknown commands return
+`UNKNOWN <command>`. `INFO` does not produce a standard-output response.
 
-```bash
-./moku/build/moku
-```
+`extended_moku` supports the same command handling and additionally recognizes `DISPLAY`/`D`,
+`HELP`, and `BENCHMARK <depth> <time_limit_ms>`. These are not standard Gomocup commands.
+There is no implemented `ANALYZE` command.
 
-On Windows:
-
-```powershell
-.\moku\build\Release\moku.exe
-```
-
-The project uses GoogleTest through CMake `FetchContent`.
-
-## Running the Executable
-
-Invocation on Linux:
-
-```bash
-./moku/build/moku [options]
-```
-
-Invocation on Windows:
-
-```powershell
-.\moku\build\Release\moku.exe [options]
-```
-
-### Game Modes
-
-- `--engine`, `-e` - engine mode using the Gomoku AI Protocol
-- `--pvp`, `-p` - hotseat Player vs Player in one terminal
-- `--minimax`, `-m` - Player vs Minimax agent
-- Minimax mode is used by default if no mode is specified
-
-### Settings
-
-- `--size`, `-s <n>` - board size, integer 5-19, default 15
-- `--depth`, `-d <n>` - maximum Minimax search depth, default 12
-- `--time`, `-t <ms>` - search time limit in milliseconds, default 20000
-- `--cores`, `-c <n>` - number of CPU cores to use, clamped to hardware concurrency
-- `--debug` - enable debug output on stderr
-
-### Helpers
-
-- `--version`, `-v` - print version and exit
-- `--help`, `-h` - print usage and exit
-- `--benchmark`, `-b` - run benchmark tests
-
-Benchmark example:
-
-```bash
-./moku/build/moku --benchmark
-```
-
-Benchmark with depth and time limit:
-
-```bash
-./moku/build/moku --benchmark 10 5000
-```
-
-Example game:
-
-```bash
-./moku/build/moku --pvp --size 13 --time 10000
-```
-
-## Board Representation
-
-The board stores black and white cells using `std::bitset<MAX_SQUARES>`.
-
-The position index is calculated as:
-
-```text
-pos = row * g_config.board_size + col
-```
-
-The board size is runtime-configurable through `g_config.board_size`.
-
-Valid board sizes are 5 through 19.
-
-Coordinates use zero-based `X,Y` coordinates in engine protocol commands:
-
-```text
-pos = Y * board_size + X
-```
-
-## Engine Mode and Gomoku Protocol
-
-Engine mode implements the Gomocup Protocol.
-
-Commands are read line by line from stdin. Responses are written to stdout and flushed after every response. Command keywords are case-insensitive.
-
-Supported commands:
-
-- `START [size]` - initialize a board, default size 15
-- `BEGIN` - engine plays the first move as black
-- `TURN X,Y` - register the opponent's move and return the engine move
-- `BOARD ... DONE` - load a complete board position and return the engine move
-- `INFO key value` - set engine parameters
-- `RESTART` - reset the board
-- `TAKEBACK X,Y` - undo a stone
-- `RECTSTART` - unsupported; returns an error
-- `END` - terminate the engine loop
-
-`INFO` parameters include:
-
-- `timeout_turn`
-- `timeout_match`
-- `time_left`
-- `max_memory`
-- `game_type`
-- `rule`
-- `folder`
-- `depth`
-
-Debug-only commands:
-
-- `DISPLAY`
-- `D`
-- `HELP`
-
-Unknown commands return:
-
-```text
-UNKNOWN <cmd>
-```
+## Implementation Notes
+- The evaluator scores tactical patterns, gap-aware five-cell windows, and center proximity.
+- Candidate moves are empty squares within a two-square neighborhood of existing stones; an
+	empty board yields the center square.
+- The search uses black-positive evaluation scores, alpha-beta pruning, and a transposition
+	table. `TURN` uses the timed SMP search; search paths are performance-sensitive.
+- Keep the bitset representation and avoid unnecessary allocations or board copies in hot paths.
+- The protocol tests cover Gomocup handling, including TURN state consistency for both engine
+  colors (legal reply, correct stone colors, preserved stones, and no overlap).
+  There are no dedicated extended-protocol tests.
 
 ## Code Formatting
+Follow `.clang-format` in the repository root:
 
-The project uses `.clang-format` in the repository root.
+- LLVM base style, 4-space indentation, no tabs, and a 100-character column limit
+- Allman braces; left pointer and reference alignment
+- Spaces before control-statement parentheses; no spaces inside parentheses
+- Only empty short functions may remain on one line; short `if` statements stay multiline
+- Regroup and case-sensitively sort includes
+- Keep at most one consecutive blank line and preserve/reflow comments with clang-format
 
-- Base style: LLVM
-- Indentation: 4 spaces, never tabs
-- Column limit: 100 characters
-- Braces: Allman style
-- Pointer and reference alignment: left
-- Control statements use a space before parentheses
-- Short functions may remain on one line only when empty
-- Short `if` statements must not be placed on one line
-- Includes are grouped and sorted case-sensitively
-- Keep at most one consecutive empty line
-- Preserve and reflow comments according to clang-format
+## CI and Releases
+`.github/workflows/build.yml` runs on `ubuntu-latest` and `windows-latest` for `v*` tags or
+manual dispatch. It builds `gomocup_moku` and `extended_moku` and uploads platform artifacts.
+The workflow does not run the test targets.
 
-## Performance
-
-The following functions are performance-sensitive:
-
-- `evaluate_board`
-- `analyze_line_fast`
-- `score_window`
-- `is_line_dead`
-
-For hot paths:
-
-- Avoid heap allocations where possible
-- Prefer `inline` for small helper functions
-- Maintain const-correctness
-- Avoid unnecessary board copies
-- Preserve the existing bitset-based board representation
-
-## GitHub Actions
-
-The workflow in `build.yml` builds the project from the `moku` directory.
-
-The workflow uses:
-
-```yaml
-working-directory: moku
-```
-
-for CMake configuration and building.
-
-Linux artifact:
-
-```text
-moku/build/moku
-```
-
-Windows artifact:
-
-```text
-moku/build/Release/moku.exe
-```
-
-## Do and Don't
-
-- Make small, surgical changes
-- Keep changes consistent with the existing folder structure
-- Register new source files in `CMakeLists.txt`
-- Keep new headers guarded with `#pragma once`
-- Do not rewrite whole files for minor changes
-- Do not modify generated files under `build`
-- Do not add unrelated refactors
-- Ensure new source files are added to every relevant CMake target
+## Change Guidelines
+- Keep changes focused and consistent with the existing C++17 style and folder structure.
+- For every change, review and update `.github/copilot-instructions.md` and the affected
+  documentation in `docs/` to keep them consistent with the implementation. Update `README.md`
+  when its content is affected; do not leave stale instructions or documentation.
+- Write documentation in English. Maintain one reference per module using the
+  `docsModuleName.md` naming convention, follow the structure of `docs/docsConfig.md`, and
+  keep `docs/docsOverview.md` and its module links current when modules are added or changed.
+- Add new source files to every applicable target in `moku/CMakeLists.txt`.
+- Use `#pragma once` for new headers.
+- Do not modify generated build output or make unrelated refactors.
+- Preserve protocol output on stdout; send diagnostic output to stderr.
+- Run the relevant GoogleTest/CTest checks after behavior changes when available.
 
 ## Response Style
-- Be concise. No filler, no preambles.
-- Always return an explanation with the code.
+Be concise and explain code changes without filler.

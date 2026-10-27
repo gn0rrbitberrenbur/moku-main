@@ -1,16 +1,18 @@
+#include "config.hpp"
 #include "engine/extended_protocol/extended_protocol.hpp"
 
-/**
- * This file contains the main function for the moku engine and serves as the entry point
- * of the program.
- */
+#include <string_view>
 
-/**
- * The main function is the entry point of the program.
- * It creates an instance of the Engine class and calls its run method to start the engine.
- */
-int main()
+int main(int argc, char* argv[])
 {
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::string_view(argv[i]) == "--debug-output")
+        {
+            g_config.debug_output = true;
+        }
+    }
+
     Engine engine;
     engine.run();
 }

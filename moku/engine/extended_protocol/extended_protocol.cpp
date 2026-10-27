@@ -123,8 +123,8 @@ void Engine::cmd_start(std::istringstream& iss)
         size = 15; // Default
     }
 
-    // check for valid size (5-20)
-    if (size < 5 || size > 20)
+    // check for valid size (5-19)
+    if (size < 5 || size > MAX_SIZE)
     {
         std::cout << "ERROR unsupported board size " << size << std::endl;
         std::cout.flush(); // FLUSH

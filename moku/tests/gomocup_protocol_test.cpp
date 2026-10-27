@@ -98,8 +98,8 @@ TEST_F(GomocupProtocolTest, START_StartAcceptsSupportedBoardSizes)
     EXPECT_EQ(engine.execute("START 5"), "OK\n");
     EXPECT_EQ(g_config.board_size, 5);
 
-    EXPECT_EQ(engine.execute("START 20"), "OK\n");
-    EXPECT_EQ(g_config.board_size, 20);
+    EXPECT_EQ(engine.execute("START 19"), "OK\n");
+    EXPECT_EQ(g_config.board_size, 19);
 }
 
 TEST_F(GomocupProtocolTest, START_StartRejectsUnsupportedBoardSizes)
@@ -107,7 +107,7 @@ TEST_F(GomocupProtocolTest, START_StartRejectsUnsupportedBoardSizes)
     ProtocolEngine engine;
 
     EXPECT_EQ(engine.execute("START 4").find("ERROR"), 0);
-    EXPECT_EQ(engine.execute("START 21").find("ERROR"), 0);
+    EXPECT_EQ(engine.execute("START 20").find("ERROR"), 0);
 }
 
 TEST_F(GomocupProtocolTest, START_StartCreatesEmptyBoard)
@@ -153,6 +153,56 @@ TEST_F(GomocupProtocolTest, TURN_TurnReturnsMoveAndRegistersOpponentMove)
     expect_coordinate(output, 15);
     EXPECT_TRUE(engine.get_board().test_pos(0));
     EXPECT_EQ(engine.get_board().black.count() + engine.get_board().white.count(), 2);
+}
+
+TEST_F(GomocupProtocolTest, TURN_TurnStoresLegalReplyAndOpponentMoveWithoutOverlap)
+{
+    for (const bool engine_is_black : {false, true})
+    {
+        SCOPED_TRACE(engine_is_black ? "Engine plays black" : "Engine plays white");
+        g_config.max_depth = 1;
+        ProtocolEngine engine;
+        ASSERT_EQ(engine.execute("START 15"), "OK\n");
+        engine.execute("INFO timeout_turn 100");
+
+        if (engine_is_black)
+        {
+            ASSERT_NO_FATAL_FAILURE(expect_coordinate(engine.execute("BEGIN"), 15));
+        }
+
+        const Board before = engine.get_board();
+        const int opponent_pos = 3 * 15 + 2;
+        ASSERT_FALSE(before.test_pos(opponent_pos));
+
+        const std::string output = engine.execute("TURN 2,3");
+        ASSERT_NO_FATAL_FAILURE(expect_coordinate(output, 15));
+
+        std::istringstream stream(output);
+        int reply_x;
+        int reply_y;
+        char comma;
+        ASSERT_TRUE(stream >> reply_x >> comma >> reply_y);
+        const int reply_pos = reply_y * 15 + reply_x;
+
+        EXPECT_FALSE(before.test_pos(reply_pos));
+        EXPECT_NE(reply_pos, opponent_pos);
+
+        const Board& after = engine.get_board();
+        const auto& own_stones = engine_is_black ? after.black : after.white;
+        const auto& opponent_stones = engine_is_black ? after.white : after.black;
+        EXPECT_TRUE(own_stones.test(reply_pos));
+        EXPECT_FALSE(opponent_stones.test(reply_pos));
+        EXPECT_TRUE(opponent_stones.test(opponent_pos));
+        EXPECT_FALSE(own_stones.test(opponent_pos));
+        EXPECT_TRUE((after.black & after.white).none());
+
+        auto expected_black = before.black;
+        auto expected_white = before.white;
+        (engine_is_black ? expected_black : expected_white).set(reply_pos);
+        (engine_is_black ? expected_white : expected_black).set(opponent_pos);
+        EXPECT_EQ(after.black, expected_black);
+        EXPECT_EQ(after.white, expected_white);
+    }
 }
 
 TEST_F(GomocupProtocolTest, TURN_TurnRejectsNegativeCoordinates)
@@ -207,6 +257,60 @@ TEST_F(GomocupProtocolTest, BOARD_BoardLoadsOwnAndOpponentStones)
 
     expect_coordinate(output, 15);
     EXPECT_EQ(engine.get_board().black.count() + engine.get_board().white.count(), 4);
+}
+
+TEST_F(GomocupProtocolTest, BOARD_BoardPreservesPositionsAndAddsExactlyOneOwnStone)
+{
+    for (const bool engine_is_black : {false, true})
+    {
+        SCOPED_TRACE(engine_is_black ? "Engine plays black" : "Engine plays white");
+        g_config.max_depth = 1;
+        ProtocolEngine engine;
+        ASSERT_EQ(engine.execute("START 15"), "OK\n");
+        engine.execute("INFO timeout_turn 100");
+
+        const int own_pos = 3 * 15 + 2;
+        const int opponent_pos = 6 * 15 + 5;
+        const int extra_opponent_pos = 9 * 15 + 8;
+        std::string input = "5,6,2\n2,3,1\n";
+        if (!engine_is_black)
+        {
+            input += "8,9,2\n";
+        }
+        input += "DONE\n";
+
+        Board expected;
+        expected.make_move(own_pos, engine_is_black);
+        expected.make_move(opponent_pos, !engine_is_black);
+        if (!engine_is_black)
+        {
+            expected.make_move(extra_opponent_pos, !engine_is_black);
+        }
+
+        const std::string output = engine.execute("BOARD", input);
+        ASSERT_NO_FATAL_FAILURE(expect_coordinate(output, 15));
+        std::istringstream stream(output);
+        int reply_x;
+        int reply_y;
+        char comma;
+        ASSERT_TRUE(stream >> reply_x >> comma >> reply_y);
+        ASSERT_GE(reply_x, 0);
+        ASSERT_LT(reply_x, 15);
+        ASSERT_GE(reply_y, 0);
+        ASSERT_LT(reply_y, 15);
+        const int reply_pos = reply_y * 15 + reply_x;
+        EXPECT_FALSE(expected.test_pos(reply_pos));
+        expected.make_move(reply_pos, engine_is_black);
+
+        const Board& after = engine.get_board();
+        const auto& own_stones = engine_is_black ? after.black : after.white;
+        const auto& opponent_stones = engine_is_black ? after.white : after.black;
+        EXPECT_EQ(own_stones.count(), 2);
+        EXPECT_EQ(opponent_stones.count(), engine_is_black ? 1 : 2);
+        EXPECT_EQ(after.black, expected.black);
+        EXPECT_EQ(after.white, expected.white);
+        EXPECT_TRUE((after.black & after.white).none());
+    }
 }
 
 TEST_F(GomocupProtocolTest, BOARD_BoardResetsPreviousPosition)

@@ -5,7 +5,7 @@
 struct GameConfig
 {
 
-    std::string version = "0.0.7";
+    std::string version = "0.0.8";
 
     int board_size = 15;
 

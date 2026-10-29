@@ -16,7 +16,7 @@ limitations. Examples assume a supported board size and valid positions.
 | Transposition table | [docsTranspositionTable.md](docsTranspositionTable.md) | Zobrist hashes and cached search results |
 | Engine | [docsEngine.md](docsEngine.md) | Executable entry points and command processing |
 | Gomocup protocol | [docsGomocupProtocol.md](docsGomocupProtocol.md) | Standard commands and compatibility notes |
-| Extended protocol | [docsExtendedProtocol.md](docsExtendedProtocol.md) | Display, help, and benchmark commands |
+| Extended protocol | [docsExtendedProtocol.md](docsExtendedProtocol.md) | Display, help, benchmark commands |
 | Benchmark | [docsBenchmark.md](docsBenchmark.md) | Predefined search workloads and reporting |
 | Tests | [docsTests.md](docsTests.md) | GoogleTest suites and focused validation |
 | Build and release | [docsBuild.md](docsBuild.md) | CMake targets, dependencies, and CI |
@@ -35,6 +35,9 @@ stdin
 ```
 
 The extended executable adds access to board display and the benchmark runner.
+Its debug-toggle handler is implemented but not yet registered for stdin commands;
+see [DEBUG_OUTPUT](docsExtendedProtocol.md#5-debug_output). The former startup flag
+has been removed.
 The two protocol implementations are separate; they are not linked into the same
 executable.
 

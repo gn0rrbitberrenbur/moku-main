@@ -33,8 +33,7 @@ The command does not generate a move or modify the board.
 
 ## 3. HELP
 Prints `MESSAGE` lines describing `START`, `BEGIN`, `TURN`, `BOARD`, `INFO`,
-`ABOUT`, and `END`. The current built-in help is not a complete inventory:
-it does not list all optional or extended commands.
+`ABOUT`, `END`, and `DEBUG_OUTPUT`.
 
 Use this document for the full extension reference rather than assuming that
 every implemented command appears in the help output.
@@ -67,7 +66,31 @@ It temporarily changes the global board size for each workload and restores
 it on normal completion. It uses separate boards and agents rather than
 replacing the protocol engine's current position.
 
-## 5. Example Session and Limitations
+## 5. DEBUG_OUTPUT
+The former `--debug-output` startup flag has been removed. Debug output defaults
+to disabled. The `cmd_debug_output()` handler takes no arguments and inverts
+`g_config.debug_output` on each call. It writes the resulting state to stdout:
+
+```text
+DEBUG_OUTPUT True
+```
+
+or:
+
+```text
+DEBUG_OUTPUT False
+```
+
+Conditional search and move-handling diagnostics remain on stderr. This flag
+does not suppress explicit `DISPLAY`, `HELP`, or benchmark output, and it is not
+a universal logging switch. `BENCHMARK` disables it without restoring its value.
+
+**Current limitation:** `process_command()` has no `DEBUG_OUTPUT` branch, so the
+handler is unreachable through stdin. Sending `DEBUG_OUTPUT` currently returns
+`UNKNOWN DEBUG_OUTPUT`. Registering the handler is required before runtime
+toggling can be used. This extension is not part of the standard Gomocup protocol.
+
+## 6. Example Session and Limitations
 ```text
 START 15
 BEGIN
@@ -84,7 +107,7 @@ The header declares `cmd_analyze()`, but there is no implementation or
 dispatcher branch for `ANALYZE`. Sending it returns `UNKNOWN ANALYZE`.
 There are no dedicated extended-protocol tests at present.
 
-## 6. Implementation Locations
+## 7. Implementation Locations
 - [Extended entry point](../moku/main_extended_protocol.cpp).
 - [extended_protocol.hpp](../moku/engine/extended_protocol/extended_protocol.hpp):
   handler interface.

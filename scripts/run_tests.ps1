@@ -4,17 +4,20 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $sourceDir = Join-Path $repoRoot 'moku'
 $buildDir = Join-Path $sourceDir 'build'
 
-Write-Output "[INFO] Running tests in build directory [$buildDir]."
+Write-Host "[INFO] Running tests in build directory [$buildDir]." -ForegroundColor Green
 
 Push-Location $buildDir
 try {
-    ctest --output-on-failure
+    ctest -C Release --output-on-failure
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
-        [Console]::Error.WriteLine("[ERROR] Tests failed in [$buildDir] (exit code $exitCode).")
+        $red = "$([char]27)[31m"
+        $reset = "$([char]27)[0m"
+
+        [Console]::Error.WriteLine("${red}[ERROR] Tests failed in [$buildDir] (exit code $exitCode).${reset}")
         exit $exitCode
     }
-    Write-Output "[INFO] Tests completed successfully in [$buildDir]."
+    Write-Host "[INFO] Tests completed successfully in [$buildDir]." -ForegroundColor Green
 } finally {
     Pop-Location
 }

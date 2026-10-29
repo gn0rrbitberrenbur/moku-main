@@ -29,6 +29,7 @@ struct GameConfig
     }
 
     bool debug_output = false;
+    int metrics_logging_interval = 10; // in milliseconds (ms)
 
     unsigned int cores =
         std::thread::hardware_concurrency() == 0 ? 1 : std::thread::hardware_concurrency();

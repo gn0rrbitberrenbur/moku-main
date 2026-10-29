@@ -53,7 +53,6 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
 
     int best_move = -1;
     float best_score = 0;
-    int completed_depth = 0;
 
     // get moves
     std::vector<int> moves = evaluator.get_valid_moves(board);
@@ -93,8 +92,6 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
     {
         search_aborted = false;
         progress_depth.store(depth, std::memory_order_relaxed);
-
-        auto depth_start = std::chrono::steady_clock::now();
 
         {
             std::vector<std::pair<int, int>> scored;
@@ -177,23 +174,12 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
             progress_score_valid.store(true, std::memory_order_relaxed);
         }
 
-        auto depth_end = std::chrono::steady_clock::now();
-        double depth_time = std::chrono::duration<double>(depth_end - depth_start).count();
-
         // only if search was not aborted, update best move and print info
         if (!search_aborted)
         {
             best_move = current_best_move;
             best_score = current_best_score;
-            completed_depth = depth;
             last_root_candidates = std::move(depth_candidates);
-
-            if (g_config.debug_output == true)
-            {
-                std::cerr << "[info] Depth: " << depth << " | Score: " << best_score
-                          << " | Best Move: " << best_move << " | Nodes: " << nodes_searched
-                          << " | Time: " << (int)(depth_time * 1000) << "ms" << std::endl;
-            }
 
             // if winning move found, stop immediately
             if (std::abs(best_score) >= 90000)
@@ -229,19 +215,6 @@ int MinimaxAgent::get_best_move_timed(Board& board, bool is_black, int time_limi
         }
     }
 
-    // print info
-    auto total_end = std::chrono::steady_clock::now();
-    double total_time = std::chrono::duration<double>(total_end - search_start).count();
-
-    if (g_config.debug_output == true)
-    {
-        std::cerr << "[info] Search complete: Depth: " << completed_depth
-                  << " | Best Move: " << best_move << " | Time: " << (int)(total_time * 1000)
-                  << "ms"
-                  << " | Nodes: " << nodes_searched << " | TT Hits: " << tt_hits
-                  << " | TT Size: " << tt.size() << std::endl;
-    }
-
     time_limit = 0; // reset
     last_root_score = best_score;
     return best_move;
@@ -265,7 +238,10 @@ float MinimaxAgent::minimax(Board& board, int depth, float alpha, float beta, bo
     if (time_limit > 0 && nodes_searched % 1000 == 0)
     {
         // report progress to std::cerr
-        report_progress();
+        if (g_config.debug_output == true)
+        {
+            report_progress();
+        }
         if (is_time_up())
         {
             search_aborted = true;
@@ -493,13 +469,7 @@ int MinimaxAgent::get_best_move(Board& board, bool is_black)
 
     auto end = std::chrono::steady_clock::now();
     std::chrono::duration<double> duration = end - begin;
-    if (g_config.debug_output == true)
-    {
-        std::cerr << "[info] Search complete: Depth: " << max_depth << " | Best Move: " << best_move
-                  << " | Time: " << (int)(duration.count() * 1000) << "ms"
-                  << " | Nodes: " << nodes_searched << " | TT Hits: " << tt_hits
-                  << " | TT Size: " << tt.size() << std::endl;
-    }
+
     last_root_score = best_score;
     return best_move;
 }
@@ -670,18 +640,6 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
                 }
             }
 
-            if (thread_id == 0 && g_config.debug_output)
-            {
-                auto now = std::chrono::steady_clock::now();
-                double elapsed = std::chrono::duration<double>(now - search_start).count();
-                std::lock_guard<std::mutex> lock(result_mutex);
-                std::cerr << "[info] depth=" << depth << " | best=" << current_best_move
-                          << " | score=" << current_best_score
-                          << " | time=" << (int)(elapsed * 1000) << "ms"
-                          << " | nodes=" << nodes_searched.load(std::memory_order_relaxed)
-                          << " | tt_hits=" << tt_hits.load(std::memory_order_relaxed) << std::endl;
-            }
-
             if (std::abs(current_best_score) >= 90000)
             {
                 search_aborted = true;
@@ -700,16 +658,6 @@ int MinimaxAgent::get_best_move_timed_smp(Board& board, bool is_black, int time_
     search_aborted = true; // signal helpers to stop
     for (auto& th : pool)
         th.join();
-
-    if (g_config.debug_output)
-    {
-        auto total_end = std::chrono::steady_clock::now();
-        double total_time = std::chrono::duration<double>(total_end - search_start).count();
-        std::cerr << "[info] SMP search: threads=" << threads
-                  << " | depth=" << completed_depth.load() << " | best=" << shared_best_move.load()
-                  << " | time=" << (int)(total_time * 1000) << "ms"
-                  << " | nodes=" << nodes_searched << " | tt_hits=" << tt_hits << std::endl;
-    }
 
     time_limit = 0;
     return shared_best_move.load();
@@ -734,7 +682,7 @@ void MinimaxAgent::report_progress()
 
     std::lock_guard<std::mutex> lock(progress_mutex);
     const auto now = std::chrono::steady_clock::now();
-    if (now - last_progress_report < std::chrono::milliseconds(1))
+    if (now - last_progress_report < std::chrono::milliseconds(g_config.metrics_logging_interval))
     {
         return;
     }
@@ -745,7 +693,7 @@ void MinimaxAgent::report_progress()
     const auto nodes = nodes_searched.load(std::memory_order_relaxed);
     const int move = progress_best_move.load(std::memory_order_relaxed);
 
-    std::cerr << "MOKU {\"event\":\"search_progress\""
+    std::cerr << "[METRICS] {\"event\":\"search_progress\""
               << ",\"elapsed_ms\":" << elapsed_ms << ",\"nodes_total\":" << nodes
               << ",\"tt_hits_total\":" << tt_hits.load(std::memory_order_relaxed)
               << ",\"nps\":" << nodes * 1000 / elapsed_ms

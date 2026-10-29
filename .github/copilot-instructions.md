@@ -66,9 +66,9 @@ To build one target, use `cmake --build moku/build --config Release --target <ta
 ## Configuration and Board
 Defaults in `GameConfig` are board size 15, maximum search depth 12, and a 20,000 ms turn time
 limit. The configured thread count defaults to hardware concurrency, with a fallback of one.
-`extended_moku` accepts `--debug-output` to enable diagnostic output. `gomocup_moku` has no
-command-line options; Gomocup `INFO` commands update settings such as `timeout_turn` and `depth`
-at runtime.
+Neither executable provides command-line configuration options; the former `extended_moku`
+`--debug-output` flag has been removed. Gomocup `INFO` commands update settings such as
+`timeout_turn` and `depth` at runtime. Debug output defaults to disabled.
 
 The board uses two `std::bitset<MAX_SQUARES>` values, with `MAX_SIZE` set to 19 and
 `MAX_SQUARES` set to 361. Positions are row-major: `pos = row * board_size + col`. Gomocup
@@ -104,6 +104,13 @@ Recognized `INFO` keys are `timeout_turn`, `timeout_match`, `time_left`, `max_me
 `extended_moku` supports the same command handling and additionally recognizes `DISPLAY`/`D`,
 `HELP`, and `BENCHMARK <depth> <time_limit_ms>`. These are not standard Gomocup commands.
 There is no implemented `ANALYZE` command.
+
+The extended engine defines `cmd_debug_output()` and lists `DEBUG_OUTPUT` in `HELP`.
+The handler toggles `g_config.debug_output` and replies on stdout with exactly
+`DEBUG_OUTPUT True` or `DEBUG_OUTPUT False`. However, `process_command()` does not yet
+dispatch this command: stdin currently receives `UNKNOWN DEBUG_OUTPUT`. Do not claim
+runtime toggling works until the dispatcher calls the handler. Conditional diagnostics
+remain on stderr; `BENCHMARK` disables debug output without restoring its previous value.
 
 ## Implementation Notes
 - The evaluator scores tactical patterns, gap-aware five-cell windows, and center proximity.

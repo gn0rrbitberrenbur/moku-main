@@ -161,7 +161,14 @@ are synchronized.
 ### debug_output
 Enables conditional diagnostics in search code and protocol move handling.
 These diagnostics are written to stderr to preserve protocol output on stdout.
-There is no `INFO` command for this flag.
+There is no `INFO` command for this flag, and the former `--debug-output` startup
+flag has been removed.
+
+The extended engine's `cmd_debug_output()` handler toggles this value and replies
+on stdout with `DEBUG_OUTPUT True` or `DEBUG_OUTPUT False`. It is listed by
+`HELP`, but is not yet registered in `process_command()`: sending `DEBUG_OUTPUT`
+currently returns `UNKNOWN DEBUG_OUTPUT`. See the
+[extended protocol reference](docsExtendedProtocol.md#5-debug_output).
 
 This is not a universal logging switch: for example, a valid `INFO depth`
 command writes its depth-change message to stderr regardless of this flag.

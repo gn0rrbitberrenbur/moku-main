@@ -76,6 +76,12 @@ The Gomocup command set includes:
 
 Coordinates use the `X,Y` format. Command names are case-insensitive.
 
+Debug output is disabled by default. The former `--debug-output` startup flag has been
+removed. A `DEBUG_OUTPUT` handler toggles diagnostics and replies with `DEBUG_OUTPUT True`
+or `DEBUG_OUTPUT False`, but it is not yet registered in the command dispatcher. Sending
+`DEBUG_OUTPUT` currently returns `UNKNOWN DEBUG_OUTPUT`, despite its entry in `HELP`.
+See the [extended protocol reference](docs/docsExtendedProtocol.md#5-debug_output) for details.
+
 An empty board starts at its center. The default board size is 15, search depth is 12, and the
 default turn time limit is 20 seconds. Settings such as turn time and search depth can be sent
 with Gomocup `INFO` commands.

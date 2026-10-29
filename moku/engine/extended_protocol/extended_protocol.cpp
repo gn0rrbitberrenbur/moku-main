@@ -36,6 +36,9 @@ void Engine::run()
     }
 }
 
+/**
+ * 
+ */
 void Engine::process_command(const std::string& line)
 {
     std::istringstream iss(line);
@@ -93,6 +96,10 @@ void Engine::process_command(const std::string& line)
     else if (cmd_upper == "DISPLAY" || cmd_upper == "D")
     {
         cmd_display();
+    }
+    else if (cmd_upper == "DEBUG_OUTPUT")
+    {
+        cmd_debug_output(iss);
     }
     else if (cmd_upper == "HELP")
     {
@@ -471,6 +478,7 @@ void Engine::cmd_help()
     std::cout << "MESSAGE   BOARD ... DONE - Set board state" << std::endl;
     std::cout << "MESSAGE   INFO key value - Set parameters" << std::endl;
     std::cout << "MESSAGE   ABOUT - Brain information" << std::endl;
+    std::cout << "MESSAGE   DEBUG_OUTPUT - Toggle debug output" << std::endl;
     std::cout << "MESSAGE   END - Terminate" << std::endl;
 }
 
@@ -478,6 +486,8 @@ void Engine::cmd_help()
  * This function processes the BENCHMARK command, which is a debug command to run a benchmark of the
  * AI search. BENCHMARK depth time_limit_ms - Run benchmark with given depth and time limit No
  * response expected
+ * @param iss An input string stream containing the command arguments
+ * @return void
  */
 void Engine::cmd_benchmark(std::istringstream& iss)
 {
@@ -493,4 +503,39 @@ void Engine::cmd_benchmark(std::istringstream& iss)
 
     run_benchmark(depth, time_limit_ms);
     std::cout.flush();
+}
+
+/**
+ * This function processes the DEBUG_OUTPUT command, which toggles the debug output flag.
+ * DEBUG_OUTPUT - Toggle debug output
+ * No response expected
+ * This is not part of the Gomocup Protocol.
+ * @param iss An input string stream containing the command arguments
+ * @return void
+ */
+void Engine::cmd_debug_output(std::istringstream& iss)
+{
+    int interval_ms = g_config.metrics_logging_interval;
+
+    iss >> std::ws;
+    if (!iss.eof())
+    {
+        if (!(iss >> interval_ms) || interval_ms <= 0)
+        {
+            std::cout << "ERROR DEBUG_OUTPUT expects a positive interval in ms" << std::endl;
+            return;
+        }
+
+        iss >> std::ws;
+        if (!iss.eof())
+        {
+            std::cout << "ERROR DEBUG_OUTPUT expects at most one argument" << std::endl;
+            return;
+        }
+    }
+
+    g_config.metrics_logging_interval = interval_ms;
+    g_config.debug_output = !g_config.debug_output;
+
+    std::cout << "DEBUG_OUTPUT " << (g_config.debug_output ? "True" : "False") << std::endl;
 }

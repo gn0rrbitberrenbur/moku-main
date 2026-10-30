@@ -1,4 +1,8 @@
 # moku
+
+## Notice
+> Archived on October 30th 2026 due to switch to a monorepo ([See](https://github.com/gn0rrbitberrenbur/moku))
+---
 moku is a C++17 Gomoku engine with two protocol-driven executables: 
 - A Gomocup protocol compliant engine
 - An extended build with debugging and benchmark commands. 
